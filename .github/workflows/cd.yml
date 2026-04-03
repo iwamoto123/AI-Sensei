@@ -1,0 +1,74 @@
+name: CD
+
+# Vercel 利用時: Repository secrets に VERCEL_TOKEN, VERCEL_ORG_ID, VERCEL_PROJECT_ID を設定。
+# main/master への push ではシークレットがある場合のみデプロイジョブが実行されます。
+on:
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: デプロイ先（GitHub Environments と同名を推奨）
+        required: true
+        default: staging
+        type: choice
+        options:
+          - staging
+          - production
+  push:
+    branches: [main, master]
+    paths-ignore:
+      - "**.md"
+      - "fixtures/**"
+
+env:
+  NEXT_PUBLIC_SUPABASE_URL: https://placeholder.supabase.co
+  NEXT_PUBLIC_SUPABASE_ANON_KEY: placeholder-anon-key
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    if: |
+      github.event_name == 'workflow_dispatch' ||
+      (github.event_name == 'push' && secrets.VERCEL_TOKEN != '')
+    environment: ${{ github.event_name == 'workflow_dispatch' && inputs.environment || 'production' }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build
+        run: npm run build
+
+      - name: Vercel 引数（--prod かどうか）
+        id: vercel
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          DEPLOY_ENV: ${{ github.event_name == 'workflow_dispatch' && inputs.environment || '' }}
+        run: |
+          ARGS=""
+          if [ "$EVENT_NAME" = "push" ]; then
+            ARGS="--prod"
+          elif [ "$DEPLOY_ENV" = "production" ]; then
+            ARGS="--prod"
+          fi
+          echo "args=$ARGS" >> "$GITHUB_OUTPUT"
+
+      - name: Deploy to Vercel
+        if: ${{ secrets.VERCEL_TOKEN != '' }}
+        uses: amondnet/vercel-action@v25
+        with:
+          vercel-token: ${{ secrets.VERCEL_TOKEN }}
+          vercel-org-id: ${{ secrets.VERCEL_ORG_ID }}
+          vercel-project-id: ${{ secrets.VERCEL_PROJECT_ID }}
+          vercel-args: ${{ steps.vercel.outputs.args }}
+          working-directory: ./
+
+      - name: デプロイスキップ（手動実行・トークン未設定）
+        if: ${{ github.event_name == 'workflow_dispatch' && secrets.VERCEL_TOKEN == '' }}
+        run: |
+          echo "VERCEL_TOKEN が未設定のためデプロイをスキップしました。ビルドは成功しています。"
