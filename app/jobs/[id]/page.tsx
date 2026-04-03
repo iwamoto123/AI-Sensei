@@ -9,6 +9,8 @@ import { AnalyzeButton } from "@/components/analyze-button";
 import { AnalysisResult } from "@/components/analysis-result";
 import { GenerateSlidesButton } from "@/components/generate-slides-button";
 import { MarpMarkdownView } from "@/components/marp-markdown-view";
+import { GenerateHtmlButton } from "@/components/generate-html-button";
+import { SlidePreview } from "@/components/slide-preview";
 import type { AssetType, JobStatus } from "@/lib/types";
 
 interface Props {
@@ -49,6 +51,9 @@ export default async function JobDetailPage({ params }: Props) {
 
   const showAnalyzeButton =
     job.status === "uploaded" || job.status === "failed";
+
+  const hasHtml =
+    slideProject?.html_status === "generated" && slideProject.html_content;
 
   return (
     <main className="mx-auto flex w-full max-w-3xl flex-1 flex-col gap-8 px-4 py-12">
@@ -138,6 +143,34 @@ export default async function JobDetailPage({ params }: Props) {
                 解析結果からスライド原稿を生成できます。
               </p>
               <GenerateSlidesButton jobId={id} />
+            </div>
+          )}
+        </section>
+      )}
+
+      {/* HTMLプレビューセクション */}
+      {slideProject && (
+        <section className="rounded-xl border border-zinc-200 bg-white p-6 dark:border-zinc-700 dark:bg-zinc-900">
+          {hasHtml ? (
+            <div className="space-y-6">
+              <SlidePreview htmlContent={slideProject.html_content!} />
+              <div className="border-t border-zinc-100 pt-4 dark:border-zinc-800">
+                <GenerateHtmlButton jobId={id} isRerun />
+              </div>
+            </div>
+          ) : slideProject.html_status === "failed" ? (
+            <div className="space-y-4">
+              <p className="text-sm text-red-600 dark:text-red-400">
+                HTMLプレビューの生成に失敗しました。再度実行してください。
+              </p>
+              <GenerateHtmlButton jobId={id} />
+            </div>
+          ) : (
+            <div className="space-y-4">
+              <p className="text-sm text-zinc-500 dark:text-zinc-400">
+                スライド原稿からHTMLプレビューを生成できます。
+              </p>
+              <GenerateHtmlButton jobId={id} />
             </div>
           )}
         </section>

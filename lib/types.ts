@@ -33,12 +33,17 @@ export interface Explanation {
 
 export type SlideProjectStatus = "generating" | "generated" | "failed";
 
+export type HtmlStatus = "generating" | "generated" | "failed";
+
 export interface SlideProject {
   id: string;
   job_id: string;
   marp_markdown: string;
   theme_name: string;
   status: SlideProjectStatus;
+  html_content: string | null;
+  html_status: HtmlStatus | null;
+  html_generated_at: string | null;
   created_at: string;
   updated_at: string;
 }
