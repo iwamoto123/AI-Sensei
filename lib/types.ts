@@ -30,3 +30,15 @@ export interface Explanation {
   created_at: string;
   updated_at: string;
 }
+
+export type SlideProjectStatus = "generating" | "generated" | "failed";
+
+export interface SlideProject {
+  id: string;
+  job_id: string;
+  marp_markdown: string;
+  theme_name: string;
+  status: SlideProjectStatus;
+  created_at: string;
+  updated_at: string;
+}

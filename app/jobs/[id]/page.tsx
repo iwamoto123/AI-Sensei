@@ -3,9 +3,12 @@ import Link from "next/link";
 import { getJob } from "@/lib/db/jobs";
 import { getAssetsByJobId } from "@/lib/db/assets";
 import { getExplanationByJobId } from "@/lib/db/explanations";
+import { getSlideProjectByJobId } from "@/lib/db/slide-projects";
 import { getPublicUrl } from "@/lib/storage/upload";
 import { AnalyzeButton } from "@/components/analyze-button";
 import { AnalysisResult } from "@/components/analysis-result";
+import { GenerateSlidesButton } from "@/components/generate-slides-button";
+import { MarpMarkdownView } from "@/components/marp-markdown-view";
 import type { AssetType, JobStatus } from "@/lib/types";
 
 interface Props {
@@ -26,8 +29,10 @@ const STATUS_LABELS: Record<JobStatus, string> = {
 
 const STATUS_COLORS: Record<JobStatus, string> = {
   uploaded: "bg-zinc-100 dark:bg-zinc-800",
-  analyzing: "bg-yellow-100 text-yellow-800 dark:bg-yellow-900 dark:text-yellow-200",
-  analyzed: "bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-200",
+  analyzing:
+    "bg-yellow-100 text-yellow-800 dark:bg-yellow-900 dark:text-yellow-200",
+  analyzed:
+    "bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-200",
   failed: "bg-red-100 text-red-800 dark:bg-red-900 dark:text-red-200",
 };
 
@@ -36,15 +41,18 @@ export default async function JobDetailPage({ params }: Props) {
   const job = await getJob(id);
   if (!job) notFound();
 
-  const [assets, explanation] = await Promise.all([
+  const [assets, explanation, slideProject] = await Promise.all([
     getAssetsByJobId(id),
     getExplanationByJobId(id),
+    getSlideProjectByJobId(id),
   ]);
 
-  const showAnalyzeButton = job.status === "uploaded" || job.status === "failed";
+  const showAnalyzeButton =
+    job.status === "uploaded" || job.status === "failed";
 
   return (
     <main className="mx-auto flex w-full max-w-3xl flex-1 flex-col gap-8 px-4 py-12">
+      {/* ヘッダー */}
       <div>
         <Link
           href="/new"
@@ -113,6 +121,27 @@ export default async function JobDetailPage({ params }: Props) {
           </p>
         )}
       </section>
+
+      {/* スライド原稿セクション */}
+      {explanation && (
+        <section className="rounded-xl border border-zinc-200 bg-white p-6 dark:border-zinc-700 dark:bg-zinc-900">
+          {slideProject ? (
+            <div className="space-y-6">
+              <MarpMarkdownView slideProject={slideProject} />
+              <div className="border-t border-zinc-100 pt-4 dark:border-zinc-800">
+                <GenerateSlidesButton jobId={id} isRerun />
+              </div>
+            </div>
+          ) : (
+            <div className="space-y-4">
+              <p className="text-sm text-zinc-500 dark:text-zinc-400">
+                解析結果からスライド原稿を生成できます。
+              </p>
+              <GenerateSlidesButton jobId={id} />
+            </div>
+          )}
+        </section>
+      )}
     </main>
   );
 }
