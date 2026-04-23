@@ -11,9 +11,11 @@ import {
   updateHtmlContent,
   updateHtmlStatus,
 } from "@/lib/db/slide-projects";
+import { upsertVisualAsset, getVisualAssetsByJobId } from "@/lib/db/visual-assets";
 import { getPublicUrl } from "@/lib/storage/upload";
 import { generateMarpMarkdown } from "@/lib/marp/generate";
 import { convertMarkdownToHtml } from "@/lib/marp/convert";
+import { generateVisualsForExplanation } from "@/lib/visual/generate";
 import type { AssetType } from "@/lib/types";
 
 export interface ActionState {
@@ -66,6 +68,51 @@ export async function runAnalysis(
   return {};
 }
 
+export async function generateVisuals(
+  _prevState: ActionState,
+  formData: FormData
+): Promise<ActionState> {
+  const jobId = formData.get("jobId") as string;
+  if (!jobId) return { error: "Job ID が見つかりません。" };
+
+  const explanation = await getExplanationByJobId(jobId);
+  if (!explanation) {
+    return { error: "解析結果が見つかりません。先にAI解析を実行してください。" };
+  }
+
+  const result = generateVisualsForExplanation(explanation);
+
+  if (result.generated.length === 0 && result.failed.length === 0) {
+    return { error: "この問題では図の生成対象がありませんでした。" };
+  }
+
+  // 成功した図を保存（MeaningModel があればそちらを優先保存）
+  for (const visual of result.generated) {
+    await upsertVisualAsset(
+      jobId,
+      visual.type,
+      "generated",
+      visual.svgContent,
+      null,
+      visual.meaningModel ?? visual.spec
+    );
+  }
+
+  // 失敗した図を記録
+  for (const fail of result.failed) {
+    await upsertVisualAsset(jobId, fail.type, "failed", null, fail.error);
+  }
+
+  revalidatePath(`/jobs/${jobId}`);
+
+  if (result.failed.length > 0) {
+    return {
+      error: `一部の図生成に失敗しました: ${result.failed.map((f) => f.type).join(", ")}`,
+    };
+  }
+  return {};
+}
+
 export async function generateSlides(
   _prevState: ActionState,
   formData: FormData
@@ -79,7 +126,9 @@ export async function generateSlides(
   }
 
   try {
-    const markdown = generateMarpMarkdown(explanation);
+    // 図がある場合は差し込む
+    const visuals = await getVisualAssetsByJobId(jobId);
+    const markdown = generateMarpMarkdown(explanation, "default", visuals);
     await upsertSlideProject(jobId, markdown);
   } catch (e) {
     console.error("[Slide generation failed]", e);

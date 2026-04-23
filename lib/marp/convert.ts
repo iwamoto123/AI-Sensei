@@ -34,12 +34,40 @@ export async function convertMarkdownToHtml(
   }
 }
 
-function runMarpCli(inputPath: string, outputPath: string): Promise<void> {
+/**
+ * Marp Markdown を Marp CLI で PDF に変換する。
+ * Marp CLI は内部で Chromium を使用して PDF を生成する。
+ */
+export async function convertMarkdownToPdf(
+  marpMarkdown: string
+): Promise<Buffer> {
+  const dir = await mkdtemp(join(tmpdir(), "marp-pdf-"));
+  const mdPath = join(dir, "slides.md");
+  const pdfPath = join(dir, "slides.pdf");
+
+  try {
+    await writeFile(mdPath, marpMarkdown, "utf-8");
+
+    await runMarpCli(mdPath, pdfPath, ["--pdf"]);
+
+    const pdf = await readFile(pdfPath);
+    return pdf;
+  } finally {
+    await unlink(mdPath).catch(() => {});
+    await unlink(pdfPath).catch(() => {});
+  }
+}
+
+function runMarpCli(
+  inputPath: string,
+  outputPath: string,
+  extraArgs: string[] = []
+): Promise<void> {
   return new Promise((resolve, reject) => {
     execFile(
       "npx",
-      ["marp", "--html", "--no-stdin", inputPath, "-o", outputPath],
-      { timeout: 30_000 },
+      ["marp", "--html", "--no-stdin", ...extraArgs, inputPath, "-o", outputPath],
+      { timeout: 60_000 },
       (error, _stdout, stderr) => {
         if (error) {
           reject(
