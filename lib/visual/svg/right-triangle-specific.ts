@@ -1,9 +1,9 @@
-import type { DiagramSceneFrame, TriangleSpec } from "@/lib/types";
+import type { DiagramSceneStep, TriangleSpec } from "@/lib/types";
 
 type RightTriangleTarget = "angle" | "base" | "height" | "hypotenuse";
 
 export interface RightTriangleSvgOptions {
-  frame?: DiagramSceneFrame;
+  frame?: DiagramSceneStep;
 }
 
 /**

@@ -161,18 +161,24 @@ export interface SolutionResult {
   answer_unit: string | null;
 }
 
-// --- DiagramScenePlan (presentation layer) ---
+// --- DiagramPresentationPlan (presentation layer) ---
 
-export interface DiagramSceneFrame {
+export interface DiagramSceneStep {
   id: string;
-  title: string;
   narration: string;
   visible_targets: string[];
   highlight_target: string | null;
   formula: string | null;
 }
 
-export interface DiagramScenePlan {
+export interface DiagramScene {
+  id: string;
+  title: string;
+  layout: "diagram-focus" | "formula-focus" | "answer-focus";
+  steps: DiagramSceneStep[];
+}
+
+export interface DiagramPresentationPlan {
   diagram_type: MeaningModel["diagram_type"];
-  frames: DiagramSceneFrame[];
+  scenes: DiagramScene[];
 }

@@ -43,3 +43,4 @@ yarn-error.log*
 
 # CI / local Marp smoke output
 .cache/
+.artifacts/

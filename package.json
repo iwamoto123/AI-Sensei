@@ -9,7 +9,12 @@
     "start": "next start",
     "lint": "eslint",
     "typecheck": "tsc --noEmit",
-    "marp:smoke": "mkdir -p .cache && marp fixtures/marp-smoke.md --allow-local-files --no-stdin -o .cache/marp-smoke.html"
+    "eval:quadratic": "node scripts/evaluate-quadratic-dataset.mjs",
+    "slides:eval": "node scripts/generate-slides-from-eval.mjs",
+    "slides:judge": "node scripts/evaluate-generated-slides.mjs",
+    "slides:review": "node scripts/build-slide-review.mjs",
+    "marp:smoke": "mkdir -p .cache && marp fixtures/marp-smoke.md --allow-local-files --no-stdin -o .cache/marp-smoke.html",
+    "preview:capture": "node scripts/capture-slide-preview.mjs"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.82.0",
@@ -27,6 +32,7 @@
     "@types/react-dom": "^19",
     "eslint": "^9",
     "eslint-config-next": "16.2.2",
+    "playwright": "^1.59.1",
     "tailwindcss": "^4",
     "typescript": "^5"
   },

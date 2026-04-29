@@ -1,4 +1,4 @@
-import type { DiagramSceneFrame, MeaningModel, TriangleSideModel } from "@/lib/types";
+import type { DiagramSceneStep, MeaningModel, TriangleSideModel } from "@/lib/types";
 
 type VertexId = "A" | "B" | "C";
 type Point = { x: number; y: number };
@@ -10,7 +10,7 @@ const DEFAULT_SIDES: TriangleSideModel[] = [
 ];
 
 export interface GeneralTriangleSvgOptions {
-  frame?: DiagramSceneFrame;
+  frame?: DiagramSceneStep;
 }
 
 export function generateGeneralTriangleSvg(

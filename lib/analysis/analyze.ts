@@ -7,8 +7,7 @@ import type {
   SolutionResult,
   TrigRelation,
 } from "@/lib/types";
-
-const MODEL = "claude-sonnet-4-20250514";
+import { ANALYSIS_MODEL, ANALYSIS_SYSTEM_PROMPT } from "@/lib/analysis/prompt";
 
 export interface AnalysisResult {
   problem_summary: string;
@@ -25,102 +24,6 @@ interface AnalysisInput {
   problemImageUrl: string;
   answerImageUrl: string;
 }
-
-const SYSTEM_PROMPT = `あなたは高校数学の教育専門家です。
-問題画像と解答画像を分析し、動画・アニメーション図解を生成するための制作メタ情報を日本語で返してください。
-必ず指定された JSON 形式のみで返答してください。JSON 以外のテキストは含めないでください。
-problem_summary, topic, solution_outline, why_this_method, common_pitfalls はスライド本文ではなく、生成・検証・デバッグ用の内部情報です。
-
-出力 JSON 形式:
-{
-  "problem_summary": "問題の要約（1〜2文）",
-  "topic": "単元名（例: 高校数学I 二次関数）",
-  "solution_outline": ["解法ステップ1", "解法ステップ2", ...],
-  "why_this_method": "なぜその解法を使うのかの説明",
-  "common_pitfalls": ["つまずきポイント1", "つまずきポイント2", ...],
-  "solution_result": {
-    "calculation_steps": [
-      {
-        "formula": "tan30° = 高さ / 20",
-        "narration": "tan の定義を使って、高さと底辺の比を式にします。"
-      },
-      {
-        "formula": "高さ = 20tan30° = 20/√3",
-        "narration": "両辺に20をかけて高さを求めます。"
-      }
-    ],
-    "final_answer": "20/√3 m",
-    "answer_unit": "m"
-  },
-  "visual_model": null
-}
-
-visual_model は、問題に直角三角形・三角比・傾斜角などの図解が有効な場合だけ返してください。
-SVG や HTML は絶対に返さないでください。図の意味だけを JSON で返してください。
-読み取れない値や曖昧な対応を推測で埋めないでください。その場合は visual_model を null にしてください。
-solution_result は解答画像に書かれている計算過程と最終答えをもとにしてください。解答が読み取れない場合は null にしてください。
-diagram_type は、直角が明示されている場合だけ "right_triangle" にしてください。
-正弦定理・余弦定理・内角の和を使う一般三角形は "triangle" にしてください。
-105° や 120° など直角三角形ではありえない角が出る場合、必ず "triangle" にしてください。
-
-直角三角形の visual_model 形式:
-{
-  "diagram_type": "right_triangle",
-  "givens": [
-    {
-      "kind": "angle",
-      "target": "angle",
-      "value": 30,
-      "unit": "degree",
-      "source_text": "問題文または解答内の根拠"
-    },
-    {
-      "kind": "length",
-      "target": "base",
-      "value": 20,
-      "unit": "m",
-      "source_text": "問題文または解答内の根拠"
-    }
-  ],
-  "unknown": {
-    "kind": "length",
-    "target": "height",
-    "label": "高さ"
-  },
-  "context_labels": [],
-  "highlight_target": "height",
-  "trig_relation": {
-    "fn": "tan",
-    "angle_value": 30,
-    "numerator": "height",
-    "denominator": "base"
-  },
-  "confidence": "high",
-  "safe_to_render_specific_labels": true
-}
-
-一般三角形の visual_model 形式:
-{
-  "diagram_type": "triangle",
-  "givens": [],
-  "unknown": null,
-  "context_labels": [],
-  "highlight_target": "b",
-  "trig_relation": null,
-  "confidence": "high",
-  "safe_to_render_specific_labels": true,
-  "triangle_vertices": [
-    { "id": "A", "label": "A", "angle_label": "105°" },
-    { "id": "B", "label": "B", "angle_label": "30°" },
-    { "id": "C", "label": "C", "angle_label": null }
-  ],
-  "triangle_sides": [
-    { "id": "a", "from": "B", "to": "C", "label": "a", "value_label": null, "is_unknown": false },
-    { "id": "b", "from": "C", "to": "A", "label": "b", "value_label": null, "is_unknown": true },
-    { "id": "c", "from": "A", "to": "B", "label": "c", "value_label": "4", "is_unknown": false }
-  ],
-  "relation_label": "c/sinC = b/sinB"
-}`;
 
 function getClient(): Anthropic {
   const apiKey = process.env.ANTHROPIC_API_KEY;
@@ -143,7 +46,7 @@ export async function analyzeJob(
   const client = getClient();
 
   const response = await client.messages.create({
-    model: MODEL,
+    model: ANALYSIS_MODEL,
     max_tokens: 2048,
     messages: [
       {
@@ -166,7 +69,7 @@ export async function analyzeJob(
         ],
       },
     ],
-    system: SYSTEM_PROMPT,
+    system: ANALYSIS_SYSTEM_PROMPT,
   });
 
   // レスポンスからテキストを取得
@@ -222,7 +125,7 @@ export async function analyzeJob(
     common_pitfalls: pitfalls,
     solution_result: solutionResult,
     visual_model: visualModel,
-    model_name: MODEL,
+    model_name: ANALYSIS_MODEL,
   };
 }
 

@@ -1,50 +1,50 @@
 import type {
-  DiagramSceneFrame,
-  DiagramScenePlan,
+  DiagramPresentationPlan,
+  DiagramScene,
+  DiagramSceneStep,
   DiagramTarget,
   MeaningModel,
   MeaningModelGiven,
   SolutionResult,
 } from "@/lib/types";
 
-export function buildScenePlanFromMeaningModel(
+export function buildPresentationPlanFromMeaningModel(
   model: MeaningModel,
   solutionResult: SolutionResult | null = null
-): DiagramScenePlan | null {
+): DiagramPresentationPlan | null {
   switch (model.diagram_type) {
     case "right_triangle":
-      return buildRightTriangleScenePlan(model, solutionResult);
+      return buildRightTrianglePresentationPlan(model, solutionResult);
     case "triangle":
-      return buildGeneralTriangleScenePlan(model, solutionResult);
+      return buildGeneralTrianglePresentationPlan(model, solutionResult);
     default:
       return null;
   }
 }
 
-function buildRightTriangleScenePlan(
+function buildRightTrianglePresentationPlan(
   model: MeaningModel,
   solutionResult: SolutionResult | null
-): DiagramScenePlan | null {
-  const frames: DiagramSceneFrame[] = [];
+) : DiagramPresentationPlan | null {
+  const scenes: DiagramScene[] = [];
   const visibleTargets = new Set<string>();
-
-  frames.push({
-    id: "setup",
-    title: "図の状況を整理",
-    narration: "問題の状況を直角三角形として整理します。",
-    visible_targets: [],
-    highlight_target: null,
-    formula: null,
-  });
+  const setupSteps: DiagramSceneStep[] = [
+    {
+      id: "setup",
+      narration: "問題の状況を直角三角形として整理します。",
+      visible_targets: [],
+      highlight_target: null,
+      formula: null,
+    },
+  ];
 
   const angle = model.givens.find(
     (given) => given.kind === "angle" && given.target === "angle"
   );
   if (angle) {
     visibleTargets.add("angle");
-    frames.push({
+    setupSteps.push({
       id: "show-angle",
-      title: "角度を確認",
       narration: `角度は ${angle.value}${formatUnit(angle.unit)} です。`,
       visible_targets: [...visibleTargets],
       highlight_target: "angle",
@@ -54,9 +54,8 @@ function buildRightTriangleScenePlan(
 
   for (const given of model.givens.filter(isLengthGiven)) {
     visibleTargets.add(given.target);
-    frames.push({
+    setupSteps.push({
       id: `show-given-${given.target}`,
-      title: `${targetLabel(given.target)}を確認`,
       narration: `${targetLabel(given.target)}は ${given.value}${formatUnit(given.unit)} です。`,
       visible_targets: [...visibleTargets],
       highlight_target: given.target,
@@ -66,9 +65,8 @@ function buildRightTriangleScenePlan(
 
   if (model.unknown) {
     visibleTargets.add(model.unknown.target);
-    frames.push({
+    setupSteps.push({
       id: `show-unknown-${model.unknown.target}`,
-      title: "求める値を確認",
       narration: `求めるのは ${model.unknown.label} です。`,
       visible_targets: [...visibleTargets],
       highlight_target: model.unknown.target,
@@ -76,78 +74,107 @@ function buildRightTriangleScenePlan(
     });
   }
 
+  if (setupSteps.length <= 1) return null;
+
+  scenes.push({
+    id: "diagram-setup",
+    title: "図の状況を整理",
+    layout: "diagram-focus",
+    steps: setupSteps,
+  });
+
   if (model.trig_relation) {
-    frames.push({
-      id: "show-relation",
+    scenes.push({
+      id: "relation",
       title: "三角比の関係を使う",
+      layout: "formula-focus",
+      steps: [{
+        id: "show-relation",
       narration: `${model.trig_relation.fn} は ${targetLabel(model.trig_relation.numerator)} と ${targetLabel(model.trig_relation.denominator)} の比です。`,
       visible_targets: [...visibleTargets],
       highlight_target: model.unknown?.target ?? model.trig_relation.numerator,
       formula: formatTrigRelation(model),
+      }],
     });
   }
 
-  if (frames.length <= 1) return null;
-
-  frames.push({
-    id: "final",
+  const allTargets = ["angle", "base", "height", "hypotenuse"];
+  scenes.push({
+    id: "diagram-summary",
     title: "図の対応を確認",
-    narration: "既知の値と求める値の対応を図で確認します。",
-    visible_targets: ["angle", "base", "height", "hypotenuse"],
-    highlight_target: model.highlight_target,
-    formula: model.trig_relation ? formatTrigRelation(model) : null,
+    layout: "diagram-focus",
+    steps: [{
+      id: "final",
+      narration: "既知の値と求める値の対応を図で確認します。",
+      visible_targets: allTargets,
+      highlight_target: model.highlight_target,
+      formula: model.trig_relation ? formatTrigRelation(model) : null,
+    }],
   });
 
   if (solutionResult) {
-    for (const [index, step] of solutionResult.calculation_steps.entries()) {
-      frames.push({
+    const calculationSteps: DiagramSceneStep[] = solutionResult.calculation_steps.map(
+      (step, index) => ({
         id: `calculate-${index + 1}`,
-        title: `計算 ${index + 1}`,
         narration: step.narration,
-        visible_targets: ["angle", "base", "height", "hypotenuse"],
+        visible_targets: allTargets,
         highlight_target: model.unknown?.target ?? model.highlight_target,
         formula: step.formula,
+      })
+    );
+
+    if (calculationSteps.length > 0) {
+      scenes.push({
+        id: "calculation",
+        title: "計算を進める",
+        layout: "formula-focus",
+        steps: calculationSteps,
       });
     }
 
-    frames.push({
+    scenes.push({
       id: "answer",
       title: "答え",
-      narration: `答えは ${solutionResult.final_answer} です。`,
-      visible_targets: ["angle", "base", "height", "hypotenuse"],
-      highlight_target: model.unknown?.target ?? model.highlight_target,
-      formula: `答え: ${solutionResult.final_answer}`,
+      layout: "answer-focus",
+      steps: [{
+        id: "answer",
+        narration: `答えは ${solutionResult.final_answer} です。`,
+        visible_targets: allTargets,
+        highlight_target: model.unknown?.target ?? model.highlight_target,
+        formula: `答え: ${solutionResult.final_answer}`,
+      }],
     });
   }
 
   return {
     diagram_type: "right_triangle",
-    frames,
+    scenes,
   };
 }
 
-function buildGeneralTriangleScenePlan(
+function buildGeneralTrianglePresentationPlan(
   model: MeaningModel,
   solutionResult: SolutionResult | null
-): DiagramScenePlan | null {
-  const frames: DiagramSceneFrame[] = [];
+) : DiagramPresentationPlan | null {
+  const scenes: DiagramScene[] = [];
   const visibleTargets = new Set<string>();
+  const setupSteps: DiagramSceneStep[] = [
+    {
+      id: "setup",
+      narration: "問題の三角形で、角と辺の対応を整理します。",
+      visible_targets: [],
+      highlight_target: null,
+      formula: null,
+    },
+  ];
 
-  frames.push({
-    id: "setup",
-    title: "図の状況を整理",
-    narration: "問題の三角形で、角と辺の対応を整理します。",
-    visible_targets: [],
-    highlight_target: null,
-    formula: null,
-  });
+  const allTargets = allGeneralTriangleTargets(model);
 
   for (const vertex of model.triangle_vertices ?? []) {
     if (!vertex.angle_label) continue;
     visibleTargets.add(vertex.id);
-    frames.push({
+    setupSteps.push({
       id: `show-angle-${vertex.id}`,
-      title: `${vertex.label} の角を確認`,
       narration: `${vertex.label} の角は ${vertex.angle_label} です。`,
       visible_targets: [...visibleTargets],
       highlight_target: vertex.id,
@@ -158,9 +185,8 @@ function buildGeneralTriangleScenePlan(
   for (const side of model.triangle_sides ?? []) {
     if (!side.value_label && !side.is_unknown) continue;
     visibleTargets.add(side.id);
-    frames.push({
+    setupSteps.push({
       id: `show-side-${side.id}`,
-      title: `${side.label} を確認`,
       narration: side.is_unknown
         ? `求めるのは ${side.label} です。`
         : `${side.label} は ${side.value_label} です。`,
@@ -170,42 +196,65 @@ function buildGeneralTriangleScenePlan(
     });
   }
 
-  frames.push({
+  if (setupSteps.length <= 1) return null;
+
+  scenes.push({
+    id: "diagram-setup",
+    title: "図の状況を整理",
+    layout: "diagram-focus",
+    steps: setupSteps,
+  });
+
+  scenes.push({
     id: "relation",
     title: "関係式を立てる",
-    narration: "角と辺の対応から、解答で使う関係式を確認します。",
-    visible_targets: allGeneralTriangleTargets(model),
-    highlight_target: model.highlight_target,
-    formula: model.relation_label ?? null,
+    layout: "formula-focus",
+    steps: [{
+      id: "relation",
+      narration: "角と辺の対応から、解答で使う関係式を確認します。",
+      visible_targets: allTargets,
+      highlight_target: model.highlight_target,
+      formula: model.relation_label ?? null,
+    }],
   });
 
   if (solutionResult) {
-    for (const [index, step] of solutionResult.calculation_steps.entries()) {
-      frames.push({
+    const calculationSteps: DiagramSceneStep[] = solutionResult.calculation_steps.map(
+      (step, index) => ({
         id: `calculate-${index + 1}`,
-        title: `計算 ${index + 1}`,
         narration: step.narration,
-        visible_targets: allGeneralTriangleTargets(model),
+        visible_targets: allTargets,
         highlight_target: model.highlight_target,
         formula: step.formula,
+      })
+    );
+
+    if (calculationSteps.length > 0) {
+      scenes.push({
+        id: "calculation",
+        title: "計算を進める",
+        layout: "formula-focus",
+        steps: calculationSteps,
       });
     }
 
-    frames.push({
+    scenes.push({
       id: "answer",
       title: "答え",
-      narration: `答えは ${solutionResult.final_answer} です。`,
-      visible_targets: allGeneralTriangleTargets(model),
-      highlight_target: model.highlight_target,
-      formula: `答え: ${solutionResult.final_answer}`,
+      layout: "answer-focus",
+      steps: [{
+        id: "answer",
+        narration: `答えは ${solutionResult.final_answer} です。`,
+        visible_targets: allTargets,
+        highlight_target: model.highlight_target,
+        formula: `答え: ${solutionResult.final_answer}`,
+      }],
     });
   }
 
-  if (frames.length <= 1) return null;
-
   return {
     diagram_type: "triangle",
-    frames,
+    scenes,
   };
 }
 

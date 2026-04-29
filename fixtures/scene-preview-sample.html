@@ -1,0 +1,128 @@
+<!doctype html>
+<html lang="ja">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Scene Preview Sample</title>
+    <style>
+      body {
+        margin: 0;
+        font-family: sans-serif;
+        background: #f5f7fb;
+      }
+      section.scene-slide {
+        width: 1280px;
+        min-height: 720px;
+        margin: 0 auto 24px;
+        padding: 36px 44px;
+        background: #fff;
+        box-sizing: border-box;
+        display: grid;
+        grid-template-columns: 1.3fr 0.8fr;
+        grid-template-rows: auto 1fr auto;
+        gap: 16px 24px;
+      }
+      .scene-visual {
+        grid-column: 1;
+        grid-row: 2 / 4;
+        position: relative;
+        height: 520px;
+        border: 1px solid #dbeafe;
+        border-radius: 12px;
+        background: #eff6ff;
+        overflow: hidden;
+      }
+      .scene-layer {
+        position: absolute;
+        inset: 0;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        opacity: 0;
+      }
+      .scene-layer svg {
+        width: 100%;
+        height: 100%;
+      }
+      .scene-notes {
+        grid-column: 2;
+        grid-row: 2;
+        border-left: 4px solid #2563eb;
+        padding-left: 16px;
+      }
+      .scene-step-note,
+      .scene-formula {
+        opacity: 0;
+      }
+      .scene-formulas {
+        grid-column: 2;
+        grid-row: 3;
+      }
+      .scene-formula {
+        padding: 12px 14px;
+        border: 1px solid #dbeafe;
+        border-radius: 8px;
+        background: #f8fafc;
+      }
+    </style>
+  </head>
+  <body>
+    <section class="scene-slide">
+      <h2>図解 1/2: 図の状況を整理</h2>
+      <div class="scene-visual">
+        <div class="scene-layer">
+          <svg viewBox="0 0 400 300" xmlns="http://www.w3.org/2000/svg">
+            <polygon points="60,240 320,240 140,70" fill="#dbeafe" stroke="#2563eb" stroke-width="3" />
+          </svg>
+        </div>
+        <div class="scene-layer">
+          <svg viewBox="0 0 400 300" xmlns="http://www.w3.org/2000/svg">
+            <polygon points="60,240 320,240 140,70" fill="#dbeafe" stroke="#2563eb" stroke-width="3" />
+            <text x="42" y="265" font-size="18">A 105°</text>
+          </svg>
+        </div>
+        <div class="scene-layer">
+          <svg viewBox="0 0 400 300" xmlns="http://www.w3.org/2000/svg">
+            <polygon points="60,240 320,240 140,70" fill="#dbeafe" stroke="#2563eb" stroke-width="3" />
+            <text x="42" y="265" font-size="18">A 105°</text>
+            <text x="316" y="265" font-size="18">B 30°</text>
+          </svg>
+        </div>
+      </div>
+      <div class="scene-notes">
+        <div class="scene-step-note"><p>三角形の形を確認します。</p></div>
+        <div class="scene-step-note"><p>A の角は 105° です。</p></div>
+        <div class="scene-step-note"><p>B の角は 30° です。</p></div>
+      </div>
+      <div class="scene-formulas">
+        <div class="scene-formula">C = 45^\circ</div>
+      </div>
+    </section>
+    <section class="scene-slide">
+      <h2>図解 2/2: 計算を進める</h2>
+      <div class="scene-visual">
+        <div class="scene-layer">
+          <svg viewBox="0 0 400 300" xmlns="http://www.w3.org/2000/svg">
+            <polygon points="60,240 320,240 140,70" fill="#dbeafe" stroke="#2563eb" stroke-width="3" />
+            <line x1="320" y1="240" x2="140" y2="70" stroke="#dc2626" stroke-width="4" />
+          </svg>
+        </div>
+        <div class="scene-layer">
+          <svg viewBox="0 0 400 300" xmlns="http://www.w3.org/2000/svg">
+            <polygon points="60,240 320,240 140,70" fill="#dbeafe" stroke="#2563eb" stroke-width="3" />
+            <line x1="320" y1="240" x2="140" y2="70" stroke="#dc2626" stroke-width="4" />
+            <text x="216" y="145" font-size="20" fill="#dc2626">b</text>
+          </svg>
+        </div>
+      </div>
+      <div class="scene-notes">
+        <div class="scene-step-note"><p>正弦定理を使います。</p></div>
+        <div class="scene-step-note"><p>未知辺 b を求めます。</p></div>
+      </div>
+      <div class="scene-formulas">
+        <div class="scene-formula">4 / sin45° = b / sin30°</div>
+        <div class="scene-formula">b = 2√2</div>
+      </div>
+    </section>
+  </body>
+  </html>
