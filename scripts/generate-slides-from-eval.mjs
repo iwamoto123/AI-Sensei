@@ -34,11 +34,16 @@ async function main() {
     await mkdir(caseDir, { recursive: true });
 
     console.log(`[${index + 1}/${selected.length}] case ${row.case_id}: generating slides`);
-    const markdown = buildSlides(row);
+    const lesson = buildLesson(row);
     const mdPath = join(caseDir, "slides.md");
     const htmlPath = join(caseDir, "slides.html");
-    await writeFile(mdPath, markdown, "utf8");
+    const narrationJsonPath = join(caseDir, "narration.json");
+    const narrationMdPath = join(caseDir, "narration.md");
+    await writeFile(mdPath, lesson.markdown, "utf8");
+    await writeFile(narrationJsonPath, `${JSON.stringify(lesson.narration, null, 2)}\n`, "utf8");
+    await writeFile(narrationMdPath, lesson.narrationMarkdown, "utf8");
     await runMarp(mdPath, htmlPath);
+    await injectAutoPlayer(htmlPath);
 
     const validation = await validateHtml(htmlPath, caseDir);
     manifest.cases.push({
@@ -47,6 +52,8 @@ async function main() {
       judge_pass: row.judge?.pass === true,
       md: mdPath,
       html: htmlPath,
+      narration_json: narrationJsonPath,
+      narration_md: narrationMdPath,
       ...validation,
     });
   }
@@ -59,15 +66,22 @@ async function main() {
   console.log(`HTML pass rate: ${summary.html_pass_rate} (${summary.html_pass_count}/${summary.case_count})`);
 }
 
-function buildSlides(row) {
+function buildLesson(row) {
   const analysis = row.analysis ?? {};
   const solution = analysis.solution_result ?? {};
-  const outline = asArray(analysis.solution_outline);
-  const pitfalls = asArray(analysis.common_pitfalls);
-  const steps = asArray(solution.calculation_steps);
   const topic = clean(analysis.topic) || "高校数学";
-  const title = `Case ${row.case_id}: ${topic}`;
   const finalAnswer = completeFinalAnswer(row, clean(solution.final_answer) || "解答を読み取れませんでした。");
+  const completedSteps = completeCalculationSteps(row, asArray(solution.calculation_steps), finalAnswer);
+  const visibleSteps = expandCalculationSteps(
+    completedSteps.length > 0
+      ? completedSteps
+      : [{
+        narration: "解答画像から読み取った最終答えを確認します。",
+        formula: finalAnswer,
+      }]
+  );
+  const groups = groupSceneSteps(visibleSteps, 4);
+  const narration = buildNarrationTimeline(row, groups, finalAnswer, topic);
 
   const markdown = [
     "---",
@@ -76,88 +90,77 @@ function buildSlides(row) {
     "paginate: true",
     "size: 16:9",
     "style: |",
+    ...buildLessonStyle(),
+    "---",
+    "",
+    ...sceneSlides(row, groups, finalAnswer, narration),
+  ].join("\n");
+  return {
+    markdown: markdown.replace(/\n---\n/g, "\n\n---\n\n"),
+    narration,
+    narrationMarkdown: buildNarrationMarkdown(narration),
+  };
+}
+
+function buildLessonStyle() {
+  return [
     "  section { font-family: system-ui, -apple-system, BlinkMacSystemFont, 'Hiragino Sans', sans-serif; padding: 42px 56px; color: #111827; }",
     "  h1 { font-size: 48px; line-height: 1.16; }",
-    "  h2 { font-size: 34px; line-height: 1.22; margin-bottom: 22px; }",
+    "  h2 { font-size: 32px; line-height: 1.2; margin-bottom: 18px; }",
     "  h3 { font-size: 20px; margin: 0 0 8px; }",
     "  p, li { font-size: 24px; line-height: 1.48; }",
     "  pre { font-size: 22px; line-height: 1.36; white-space: pre-wrap; margin: 8px 0 0; }",
     "  .answer { font-size: 28px; line-height: 1.5; white-space: pre-wrap; }",
-    "  section.scene-slide { display: grid; grid-template-columns: minmax(430px, 0.95fr) minmax(0, 1.05fr); grid-template-rows: auto minmax(0, 1fr); gap: 18px 28px; padding: 34px 42px; }",
+    "  section.scene-slide { display: grid; grid-template-columns: minmax(430px, 0.95fr) minmax(0, 1.05fr); grid-template-rows: auto minmax(0, 1fr); gap: 16px 30px; padding: 30px 42px; }",
     "  section.scene-slide h2 { grid-column: 1 / 3; margin: 0; }",
-    "  .scene-visual { position: relative; align-self: stretch; min-height: 575px; border: 1px solid #d1d5db; background: #ffffff; overflow: hidden; }",
+    "  .narration-meta { display: none; }",
+    "  .scene-visual { position: relative; align-self: stretch; min-height: 590px; background: #ffffff; overflow: hidden; }",
     "  .scene-visual svg { width: 100%; height: 100%; display: block; }",
-    "  .scene-highlight { position: absolute; width: 14px; height: 14px; border-radius: 999px; background: #dc2626; box-shadow: 0 0 0 7px rgba(220,38,38,.18); opacity: 0; animation: scene-pop .45s ease forwards; animation-delay: calc(var(--step-index) * 1.2s + .25s); }",
+    "  .scene-highlight { position: absolute; width: 13px; height: 13px; border-radius: 999px; background: #dc2626; box-shadow: 0 0 0 7px rgba(220,38,38,.16); opacity: 0; animation: scene-pop .45s ease forwards; animation-delay: calc(var(--step-index) * 1.35s + .55s); }",
     "  .scene-highlight.h1 { left: 49%; top: 49%; }",
     "  .scene-highlight.h2 { left: 62%; top: 37%; }",
     "  .scene-highlight.h3 { left: 36%; top: 37%; }",
     "  .scene-highlight.h4 { left: 72%; top: 62%; }",
-    "  .scene-panel { align-self: stretch; overflow: hidden; display: flex; flex-direction: column; gap: 13px; padding-top: 2px; }",
-    "  .scene-step { padding: 0; opacity: 0; transform: translateY(8px); animation: scene-pop .45s ease forwards; animation-delay: calc(var(--step-index) * 1.2s); }",
+    "  .scene-panel { align-self: stretch; overflow: hidden; display: flex; flex-direction: column; gap: 12px; padding-top: 2px; }",
+    "  .scene-step { padding: 0; opacity: 0; transform: translateY(8px); animation: scene-pop .45s ease forwards; animation-delay: calc(var(--step-index) * 1.35s); }",
     "  .scene-step p { font-size: 20px; line-height: 1.42; margin: 0; }",
-    "  .scene-step p strong { color: #2563eb; margin-right: 0.25em; }",
-    "  .scene-step pre { font-size: 19px; background: transparent; border: 0; padding: 0 0 0 1.7rem; margin: 4px 0 0; color: #111827; font-weight: 650; }",
-    "  .scene-answer { margin-top: auto; padding: 0; opacity: 0; transform: translateY(8px); animation: scene-pop .45s ease forwards; animation-delay: calc(var(--step-count) * 1.2s); }",
+    "  .scene-step .step-index { color: #2563eb; font-weight: 800; margin-right: 0.3em; }",
+    "  .scene-step pre { font-size: 19px; background: transparent; border: 0; padding: 0 0 0 1.65rem; margin: 4px 0 0; color: #111827; font-weight: 650; }",
+    "  .scene-answer { margin-top: auto; padding: 0; opacity: 0; transform: translateY(8px); animation: scene-pop .45s ease forwards; animation-delay: calc(var(--step-count) * 1.35s); }",
     "  .scene-answer strong { display: block; font-size: 18px; margin-bottom: 5px; color: #15803d; }",
     "  .scene-answer .answer { font-size: 21px; color: #14532d; font-weight: 700; }",
     "  .scene-answer .compact-answer { font-size: 16px; line-height: 1.38; }",
     "  @keyframes scene-pop { to { opacity: 1; transform: translateY(0); } }",
-    "  @media print { .scene-step, .scene-answer, .scene-highlight { opacity: 1; transform: none; animation: none; } }",
-    "---",
-    "",
-    `# ${escapeMarkdown(title)}`,
-    "",
-    clean(analysis.problem_summary),
-    "",
-    `判定スコア: ${row.judge?.score ?? "n/a"}`,
-    "",
-    "---",
-    "",
-    "## 解法方針",
-    "",
-    ...bulletList(outline),
-    "",
-    "---",
-    "",
-    "## なぜこの方法か",
-    "",
-    clean(analysis.why_this_method),
-    "",
-    ...sceneSlides(row, steps, finalAnswer),
-    slide([
-      "## 注意点",
-      "",
-      ...bulletList(pitfalls),
-    ]),
-  ].join("\n");
-  return markdown.replace(/\n---\n/g, "\n\n---\n\n");
+    "  @media print { .scene-step, .scene-answer, .scene-highlight, .plot-point, .domain-marker, .sub-row, .param-note, .sq-row, .axis-line, .axis-guide, .grid-line { opacity: 1; transform: none; animation: none; } .draw-line, .param-curve, .draw-shape { stroke-dashoffset: 0; } }",
+  ];
 }
 
-function sceneSlides(row, steps, finalAnswer) {
-  const completedSteps = completeCalculationSteps(row, steps, finalAnswer);
-  const visibleSteps = completedSteps.length > 0 ? completedSteps : [{
-    narration: "解答画像から読み取った最終答えを確認します。",
-    formula: finalAnswer,
-  }];
-  const groups = groupSceneSteps(visibleSteps, 4);
-
-  return groups.map((group, groupIndex) =>
-    sceneSlide(row, group.steps, finalAnswer, {
+function sceneSlides(row, groups, finalAnswer, narration) {
+  return groups.map((group, groupIndex) => {
+    const rendered = sceneSlide(row, group.steps, finalAnswer, {
       groupIndex,
       groupCount: groups.length,
       stepOffset: group.offset,
       subproblem: group.subproblem,
-      allSteps: visibleSteps,
+      allSteps: groups.flatMap((item) => item.steps),
+      narrationScene: narration.scenes[groupIndex],
       showAnswer: groupIndex === groups.length - 1,
-    })
-  );
+    });
+    return groupIndex === 0 ? rendered.replace(/^---\n\n/, "") : rendered;
+  });
 }
 
 function sceneSlide(row, steps, finalAnswer, options) {
+  const scene = options.narrationScene ?? {};
+  const sceneId = scene.id ?? `scene-${String(options.groupIndex + 1).padStart(2, "0")}`;
+  const sceneTitle = scene.title ?? inferSceneTitle(steps, options.groupIndex, options.groupCount);
+  const answerSegment = scene.segments?.find((segment) => segment.type === "answer");
+  const durationMs = Math.max(4200, steps.length * 1350 + (options.showAnswer ? 2100 : 1200));
   const answerClass = finalAnswer.length > 180 ? "answer compact-answer" : "answer";
   return slide([
     "<!-- _class: scene-slide -->",
-    `## 解答シーン ${options.groupIndex + 1}/${options.groupCount}`,
+    `<div class="narration-meta" data-scene-id="${escapeHtmlAttr(sceneId)}" data-narration-id="${escapeHtmlAttr(sceneId)}" data-auto-duration-ms="${durationMs}"></div>`,
+    `<h2>${escapeHtml(sceneTitle)}</h2>`,
     "",
     '<div class="scene-visual">',
     coordinateSvg(row, {
@@ -172,14 +175,18 @@ function sceneSlide(row, steps, finalAnswer, options) {
     "</div>",
     "",
     `<div class="scene-panel" style="--step-count:${steps.length}">`,
-    ...steps.map((step, index) => [
-      `<div class="scene-step" style="--step-index:${index}">`,
-      `<p><strong>${options.stepOffset + index + 1}.</strong> ${escapeHtml(clean(step.narration) || "計算を進めます。")}</p>`,
+    ...steps.map((step, index) => {
+      const segment = scene.segments?.filter((item) => item.type !== "answer")[index];
+      const stepNumber = options.stepOffset + index + 1;
+      return [
+      `<div class="scene-step" data-scene-id="${escapeHtmlAttr(sceneId)}" data-narration-id="${escapeHtmlAttr(segment?.id ?? `${sceneId}-step-${String(index + 1).padStart(2, "0")}`)}" data-step-number="${stepNumber}" style="--step-index:${index}">`,
+      `<p><span class="step-index">${stepNumber}.</span>${escapeHtml(clean(step.narration) || "計算を進めます。")}</p>`,
       clean(step.formula) ? `<pre>${escapeHtml(clean(step.formula))}</pre>` : "",
       "</div>",
-    ].filter(Boolean).join("\n")),
+      ].filter(Boolean).join("\n");
+    }),
     options.showAnswer ? [
-    '<div class="scene-answer">',
+    `<div class="scene-answer" data-scene-id="${escapeHtmlAttr(sceneId)}" data-narration-id="${escapeHtmlAttr(answerSegment?.id ?? `${sceneId}-answer`)}">`,
     "<strong>最終答え</strong>",
     `<div class="${answerClass}">${escapeHtml(finalAnswer)}</div>`,
     "</div>",
@@ -215,47 +222,70 @@ async function validateHtml(htmlPath, caseDir) {
       viewport: { width: 1600, height: 900 },
       deviceScaleFactor: 1,
     });
-    await page.goto(pathToFileURL(htmlPath).href, { waitUntil: "load" });
+    await page.goto(`${pathToFileURL(htmlPath).href}?autoplay=0`, { waitUntil: "load" });
     await page.addStyleTag({
       content: `
         * { animation: none !important; transition: none !important; caret-color: transparent !important; }
-        .scene-step, .scene-answer, .scene-highlight, .plot-point, .domain-marker, .sub-row, .param-note, .sq-row {
+        .scene-step, .scene-answer, .scene-highlight, .plot-point, .domain-marker, .sub-row, .param-note, .sq-row, .axis-line, .axis-guide, .grid-line {
           opacity: 1 !important;
           transform: none !important;
         }
-        .draw-line, .param-curve {
+        .draw-line, .param-curve, .draw-shape {
           stroke-dashoffset: 0 !important;
         }
       `,
     });
+    await page.evaluate(() => window.AISenseiPreview?.resetCurrent?.());
 
     const sections = await page.locator("section").count();
     const sceneSections = await page.locator("section.scene-slide").count();
     const sceneSteps = await page.locator(".scene-step").count();
     const sceneHighlights = await page.locator(".scene-highlight").count();
+    const narrationSyncCount = await page.locator("[data-narration-id]").count();
+    const firstSlideIsScene = sceneSections > 0
+      ? await page.locator("section").first().evaluate((section) => section.classList.contains("scene-slide"))
+      : false;
+    const firstSceneVisibleSteps = sceneSections > 0
+      ? await page.locator("section.scene-slide").first().locator(".scene-step").evaluateAll((steps) =>
+        steps.filter((step) => {
+          const rect = step.getBoundingClientRect();
+          const style = window.getComputedStyle(step);
+          return style.visibility !== "hidden"
+            && style.display !== "none"
+            && rect.width > 1
+            && rect.height > 1
+            && rect.bottom > 0
+            && rect.right > 0
+            && rect.top < window.innerHeight
+            && rect.left < window.innerWidth;
+        }).length
+      )
+      : 0;
     const textLength = await page.locator("body").evaluate((body) => body.textContent?.trim().length ?? 0);
     const screenshotPath = join(caseDir, "preview.png");
     if (sceneSections > 0) {
-      const firstSceneIndex = await page.locator("section").evaluateAll((sections) =>
-        sections.findIndex((section) => section.classList.contains("scene-slide"))
-      );
-      for (let index = 0; index < firstSceneIndex; index += 1) {
-        await page.keyboard.press("ArrowRight");
-        await page.waitForTimeout(20);
-      }
       await page.screenshot({ path: screenshotPath, fullPage: false });
     } else {
       await page.screenshot({ path: screenshotPath, fullPage: false });
     }
+    const captureManifest = sceneSections > 0
+      ? await captureAnimationFrames(browser, htmlPath, caseDir, sceneSections)
+      : null;
 
     return {
-      html_ok: sections >= 2 && sceneSections >= 1 && sceneSteps >= 1 && textLength >= 80,
+      html_ok: sections >= 1 && sceneSections >= 1 && firstSlideIsScene && firstSceneVisibleSteps >= 1 && sceneSteps >= 1 && narrationSyncCount >= sceneSteps && textLength >= 80,
       section_count: sections,
       scene_section_count: sceneSections,
       scene_step_count: sceneSteps,
       scene_highlight_count: sceneHighlights,
+      narration_sync_count: narrationSyncCount,
+      first_slide_is_scene: firstSlideIsScene,
+      first_scene_visible_step_count: firstSceneVisibleSteps,
       text_length: textLength,
       preview: screenshotPath,
+      animation_capture_manifest: captureManifest?.manifest_path ?? null,
+      animation_capture_count: captureManifest?.frame_count ?? 0,
+      animation_scene_count: captureManifest?.scene_count ?? 0,
     };
   } catch (error) {
     return {
@@ -268,6 +298,69 @@ async function validateHtml(htmlPath, caseDir) {
   } finally {
     await browser.close();
   }
+}
+
+async function captureAnimationFrames(browser, htmlPath, caseDir, sceneCount) {
+  const captureDir = join(caseDir, "captures");
+  await mkdir(captureDir, { recursive: true });
+  const page = await browser.newPage({
+    viewport: { width: 1600, height: 900 },
+    deviceScaleFactor: 1,
+  });
+  const frames = [];
+
+  try {
+    await page.goto(`${pathToFileURL(htmlPath).href}?autoplay=0`, { waitUntil: "load" });
+    await page.waitForTimeout(250);
+
+    for (let sceneIndex = 0; sceneIndex < sceneCount; sceneIndex += 1) {
+      if (sceneIndex > 0) {
+        await page.evaluate((index) => window.AISenseiPreview?.goTo?.(index), sceneIndex);
+        await page.waitForTimeout(250);
+      }
+
+      const duration = await page.evaluate((index) => window.AISenseiPreview?.sceneDuration?.(index) ?? 5200, sceneIndex);
+      const offsets = captureOffsets(duration);
+      for (const offset of offsets) {
+        await page.evaluate(({ index, time }) => window.AISenseiPreview?.setSceneTime?.(index, time), {
+          index: sceneIndex,
+          time: offset,
+        });
+        await page.waitForTimeout(50);
+        const fileName = `scene-${String(sceneIndex + 1).padStart(2, "0")}-t${String(offset).padStart(5, "0")}.png`;
+        const framePath = join(captureDir, fileName);
+        await page.screenshot({ path: framePath, fullPage: false });
+        frames.push({
+          scene_index: sceneIndex + 1,
+          elapsed_ms: offset,
+          path: `captures/${fileName}`,
+        });
+      }
+    }
+  } finally {
+    await page.close();
+  }
+
+  const manifest = {
+    created_at: new Date().toISOString(),
+    scene_count: sceneCount,
+    frames_per_scene: 4,
+    frame_count: frames.length,
+    frames,
+  };
+  const manifestPath = join(captureDir, "capture-manifest.json");
+  await writeFile(manifestPath, `${JSON.stringify(manifest, null, 2)}\n`, "utf8");
+  return {
+    manifest_path: manifestPath,
+    scene_count: sceneCount,
+    frame_count: frames.length,
+  };
+}
+
+function captureOffsets(duration) {
+  const end = Math.max(1800, Number(duration) || 5200);
+  const raw = [0, Math.min(1200, end - 900), Math.min(2800, end - 450), end];
+  return [...new Set(raw.map((value) => Math.max(0, Math.round(value))))].sort((a, b) => a - b);
 }
 
 function summarize(manifest) {
@@ -305,6 +398,158 @@ function runMarp(mdPath, htmlPath) {
   });
 }
 
+async function injectAutoPlayer(htmlPath) {
+  const html = await readFile(htmlPath, "utf8");
+  if (html.includes("window.AISenseiPreview")) return;
+  const injected = html.replace("</body>", `${autoPlayerMarkup()}\n</body>`);
+  await writeFile(htmlPath, injected, "utf8");
+}
+
+function autoPlayerMarkup() {
+  return `<style id="ai-sensei-preview-ui">
+  .bespoke-marp-osc,
+  .bespoke-progress-parent {
+    display: none !important;
+    opacity: 0 !important;
+    pointer-events: none !important;
+  }
+</style>
+<script>
+(() => {
+  const params = new URLSearchParams(location.search);
+  const autoplay = params.get("autoplay") !== "0";
+  const sections = Array.from(document.querySelectorAll("section.scene-slide"));
+  if (sections.length === 0) return;
+  let timer = null;
+  let current = 0;
+
+  function visibleIndex() {
+    let bestIndex = current;
+    let bestArea = -1;
+    for (const [index, section] of sections.entries()) {
+      const rect = section.getBoundingClientRect();
+      const width = Math.max(0, Math.min(rect.right, innerWidth) - Math.max(rect.left, 0));
+      const height = Math.max(0, Math.min(rect.bottom, innerHeight) - Math.max(rect.top, 0));
+      const area = width * height;
+      if (area > bestArea) {
+        bestArea = area;
+        bestIndex = index;
+      }
+    }
+    return bestIndex;
+  }
+
+  function durationFor(index) {
+    const value = Number(sections[index]?.querySelector(".narration-meta")?.dataset.autoDurationMs);
+    return Number.isFinite(value) && value > 0 ? value : 5200;
+  }
+
+  function resetAnimations(section) {
+    if (!section) return;
+    const animated = section.querySelectorAll(".scene-step,.scene-answer,.scene-highlight,.plot-point,.domain-marker,.sub-row,.param-note,.sq-row,.flow-line,.sys-line,.sys-arrow,.measure,.axis-guide,.grid-line,.draw-line,.param-curve,.draw-shape");
+    for (const element of animated) {
+      element.style.animation = "none";
+    }
+    section.getBoundingClientRect();
+    for (const element of animated) {
+      element.style.animation = "";
+    }
+  }
+
+  function activate(index) {
+    current = Math.max(0, Math.min(sections.length - 1, index));
+    for (const section of sections) section.classList.remove("ai-active-slide");
+    const section = sections[current];
+    section.classList.add("ai-active-slide");
+    resetAnimations(section);
+    return current;
+  }
+
+  function goTo(index) {
+    const next = Math.max(0, Math.min(sections.length - 1, index));
+    const id = sections[next]?.id;
+    if (id) location.hash = id;
+    sections[next]?.scrollIntoView({ block: "nearest", inline: "nearest" });
+    setTimeout(() => activate(next), 80);
+    return next;
+  }
+
+  function pressNext() {
+    const eventInit = { key: "ArrowRight", code: "ArrowRight", keyCode: 39, which: 39, bubbles: true };
+    document.dispatchEvent(new KeyboardEvent("keydown", eventInit));
+    window.dispatchEvent(new KeyboardEvent("keydown", eventInit));
+  }
+
+  function advance() {
+    const before = current;
+    if (before >= sections.length - 1) return;
+    goTo(before + 1);
+    setTimeout(() => {
+      if (visibleIndex() === before) pressNext();
+      activate(Math.max(before + 1, visibleIndex()));
+      schedule();
+    }, 160);
+  }
+
+  function schedule() {
+    clearTimeout(timer);
+    if (!autoplay || current >= sections.length - 1) return;
+    timer = setTimeout(advance, durationFor(current));
+  }
+
+  function resetCurrent() {
+    activate(visibleIndex());
+    schedule();
+  }
+
+  window.AISenseiPreview = {
+    goTo(index) {
+      clearTimeout(timer);
+      return goTo(index);
+    },
+    resetCurrent,
+    resetScene(index) {
+      clearTimeout(timer);
+      return activate(index);
+    },
+    setSceneTime(index, time) {
+      clearTimeout(timer);
+      const sceneIndex = activate(index);
+      const section = sections[sceneIndex];
+      for (const animation of section.getAnimations({ subtree: true })) {
+        animation.pause();
+        animation.currentTime = Math.max(0, Number(time) || 0);
+      }
+      return sceneIndex;
+    },
+    currentDuration() {
+      current = visibleIndex();
+      return durationFor(current);
+    },
+    sceneDuration(index) {
+      return durationFor(index);
+    },
+    currentIndex() {
+      current = visibleIndex();
+      return current;
+    },
+    stop() {
+      clearTimeout(timer);
+    },
+  };
+
+  window.addEventListener("hashchange", () => setTimeout(resetCurrent, 120));
+  document.addEventListener("keydown", () => setTimeout(resetCurrent, 160), true);
+  window.addEventListener("load", () => {
+    activate(visibleIndex());
+    schedule();
+  });
+  activate(visibleIndex());
+  schedule();
+})();
+</script>`;
+}
+
 async function readJsonl(path) {
   const content = await readFile(path, "utf8");
   return content.trim().split("\n").filter(Boolean).map((line) => JSON.parse(line));
@@ -340,11 +585,6 @@ function parseArgs(argv) {
 
 function slide(lines) {
   return ["---", "", ...lines].join("\n");
-}
-
-function bulletList(items) {
-  if (items.length === 0) return ["- 読み取れる情報がありません。"];
-  return items.map((item) => `- ${clean(item)}`);
 }
 
 function completeFinalAnswer(row, finalAnswer) {
@@ -397,6 +637,180 @@ function completeCalculationSteps(row, steps, finalAnswer) {
     });
   }
   return list;
+}
+
+function expandCalculationSteps(steps) {
+  const expanded = [];
+  for (const step of steps) {
+    const formula = clean(step?.formula);
+    const parts = splitEquationChain(formula);
+    if (parts.length < 3) {
+      expanded.push(step);
+      continue;
+    }
+
+    expanded.push({
+      ...step,
+      narration: clean(step?.narration) || "式を順番に変形します。",
+      formula: `${parts[0]} = ${parts[1]}`,
+    });
+    for (const part of parts.slice(2)) {
+      expanded.push({
+        ...step,
+        narration: "前の式をさらに整理します。",
+        formula: `= ${part}`,
+      });
+    }
+  }
+  return expanded;
+}
+
+function splitEquationChain(formula) {
+  if (!formula || formula.length > 190 || /[,，：:]|\n/.test(formula)) return [];
+  const normalized = normalizeMathForDisplay(formula);
+  const parts = normalized.split(/\s*=\s*/).map((part) => part.trim()).filter(Boolean);
+  if (parts.length < 3) return [];
+  if (parts.some((part) => part.length > 70)) return [];
+  return parts;
+}
+
+function buildNarrationTimeline(row, groups, finalAnswer, topic) {
+  const scenes = groups.map((group, groupIndex) => {
+    const id = `scene-${String(groupIndex + 1).padStart(2, "0")}`;
+    const title = inferSceneTitle(group.steps, groupIndex, groups.length);
+    const stepSegments = group.steps.map((step, index) => {
+      const stepNumber = group.offset + index + 1;
+      const text = narrationTextForStep(step, stepNumber);
+      return {
+        id: `${id}-step-${String(index + 1).padStart(2, "0")}`,
+        type: "step",
+        step_number: stepNumber,
+        text,
+        formula: clean(step.formula),
+        cue: "text-and-diagram",
+        estimated_duration_sec: estimateSpeechSeconds(text),
+      };
+    });
+    const answerSegment = groupIndex === groups.length - 1
+      ? [{
+        id: `${id}-answer`,
+        type: "answer",
+        step_number: null,
+        text: `最後に答えを確認します。${speechFormula(finalAnswer)}`,
+        formula: finalAnswer,
+        cue: "final-answer",
+        estimated_duration_sec: estimateSpeechSeconds(finalAnswer),
+      }]
+      : [];
+    const segments = [...stepSegments, ...answerSegment];
+    return {
+      id,
+      title,
+      slide_index: groupIndex + 1,
+      estimated_duration_sec: segments.reduce((sum, segment) => sum + segment.estimated_duration_sec, 0),
+      segments,
+    };
+  });
+
+  const totalDuration = scenes.reduce((sum, scene) => sum + scene.estimated_duration_sec, 0);
+  return {
+    version: 1,
+    case_id: String(row.case_id),
+    title: clean(topic) || "高校数学",
+    problem_summary: clean(row.analysis?.problem_summary),
+    final_answer: finalAnswer,
+    sync_contract: {
+      slide_selector: ".scene-slide",
+      scene_id_attribute: "data-scene-id",
+      segment_id_attribute: "data-narration-id",
+      expected_flow: "計算で必要な軸・点・値がわかってから、軸、補助線、グラフ、点、説明テキストの順に表示する",
+    },
+    tts_options: [
+      { provider: "macos-say", cost: "0円。macOS内蔵音声でローカル生成。" },
+      { provider: "voicevox", cost: "0円。別途VOICEVOX Engineのローカル起動が必要。" },
+      { provider: "elevenlabs", cost: "APIキーと有料枠が必要。高品質な商用音声向け。" },
+      { provider: "openai", cost: "APIキーが必要。低遅延TTS向け。" },
+      { provider: "mistral", cost: "API利用は従量課金。Voxtral TTSのオープンウェイトをローカル実行する場合は推論環境の計算コストのみ。" },
+    ],
+    estimated_duration_sec: totalDuration,
+    scenes,
+  };
+}
+
+function buildNarrationMarkdown(timeline) {
+  const lines = [
+    `# Case ${timeline.case_id} Narration`,
+    "",
+    `Topic: ${timeline.title}`,
+    `Estimated duration: ${timeline.estimated_duration_sec}s`,
+    "",
+  ];
+  for (const scene of timeline.scenes) {
+    lines.push(`## ${scene.slide_index}. ${scene.title}`, "");
+    for (const segment of scene.segments) {
+      lines.push(`- ${segment.id} [${segment.cue}] ${segment.text}`);
+    }
+    lines.push("");
+  }
+  return `${lines.join("\n").trim()}\n`;
+}
+
+function inferSceneTitle(steps, index, total) {
+  const text = steps.flatMap((step) => [step?.narration, step?.formula]).filter(Boolean).join("\n");
+  if (/平方完成|頂点/.test(text)) return "平方完成から軸を読む";
+  if (/軸|放物線|グラフ|直線/.test(text)) return "軸とグラフを描く";
+  if (/定義域|値域|最大値|最小値/.test(text)) return "範囲で値を比べる";
+  if (/代入|f\(/.test(text)) return "値を代入して確かめる";
+  if (/連立|消去|係数/.test(text)) return "条件から式を絞る";
+  if (index === total - 1) return "答えをまとめる";
+  return "式を順番に進める";
+}
+
+function narrationTextForStep(step, stepNumber) {
+  const narration = clean(step?.narration) || "計算を進めます。";
+  const formula = clean(step?.formula);
+  const formulaSpeech = formula ? `式は、${speechFormula(formula)}、です。` : "";
+  return `${stepNumber}つ目。${speechNarration(stripStepMarker(narration))}${formulaSpeech ? ` ${formulaSpeech}` : ""}`;
+}
+
+function stripStepMarker(value) {
+  return value.replace(/^\s*[（(]\d+[）)]\s*/, "").trim();
+}
+
+function speechNarration(value) {
+  return String(value)
+    .replace(/x\^2|x²/g, "エックス二乗")
+    .replace(/y\^2|y²/g, "ワイ二乗")
+    .replace(/(?<![A-Za-z])x/g, "エックス")
+    .replace(/(?<![A-Za-z])y/g, "ワイ")
+    .replace(/(?<![A-Za-z])k/g, "ケー")
+    .replace(/-(?=\d)/g, "マイナス")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function speechFormula(value) {
+  return displayExpression(String(value))
+    .replace(/\n+/g, "。")
+    .replace(/²/g, "二乗")
+    .replace(/=/g, "イコール")
+    .replace(/\+/g, "プラス")
+    .replace(/-/g, "マイナス")
+    .replace(/\*/g, "かける")
+    .replace(/\//g, "分の")
+    .replace(/≤|≦/g, "以下")
+    .replace(/</g, "小なり")
+    .replace(/>/g, "大なり")
+    .replace(/x/g, "エックス")
+    .replace(/y/g, "ワイ")
+    .replace(/k/g, "ケー")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function estimateSpeechSeconds(text) {
+  const length = String(text).replace(/\s+/g, "").length;
+  return Math.max(4, Math.ceil(length / 12));
 }
 
 function asArray(value) {
@@ -1095,6 +1509,19 @@ function dedupeEquivalentFunctions(functions) {
   return deduped;
 }
 
+function dedupeAxisGuides(functions) {
+  const guides = [];
+  const seen = new Set();
+  for (const fn of functions) {
+    if (fn.kind !== "quadratic" || !Number.isFinite(fn.h)) continue;
+    const key = roundKey(fn.h);
+    if (seen.has(key)) continue;
+    seen.add(key);
+    guides.push(fn);
+  }
+  return guides;
+}
+
 function functionIdentity(fn) {
   if (fn.kind === "quadratic") return `q:${roundKey(fn.a)}:${roundKey(fn.b)}:${roundKey(fn.c)}`;
   if (fn.kind === "linear") return `l:${roundKey(fn.m)}:${roundKey(fn.b)}`;
@@ -1301,18 +1728,29 @@ function functionGraphSvg(spec) {
   const grid = [];
   for (const tick of xTicks) {
     const x = toX(tick);
-    grid.push(`<line x1="${x}" y1="${top}" x2="${x}" y2="${bottom}" stroke="#e5e7eb"/>`);
+    grid.push(`<line class="grid-line" x1="${x}" y1="${top}" x2="${x}" y2="${bottom}" stroke="#e5e7eb" style="animation-delay:.05s"/>`);
     grid.push(`<text x="${x}" y="${zeroY + 20}" text-anchor="middle" font-size="12" fill="#6b7280">${formatNumber(tick)}</text>`);
   }
   for (const tick of yTicks) {
     const y = toY(tick);
-    grid.push(`<line x1="${left}" y1="${y}" x2="${right}" y2="${y}" stroke="#e5e7eb"/>`);
+    grid.push(`<line class="grid-line" x1="${left}" y1="${y}" x2="${right}" y2="${y}" stroke="#e5e7eb" style="animation-delay:.05s"/>`);
     if (tick !== 0) {
       grid.push(`<text x="${zeroX - 14}" y="${y + 4}" text-anchor="end" font-size="12" fill="#6b7280">${formatNumber(tick)}</text>`);
     }
   }
 
   const functions = spec.functions.length > 0 ? spec.functions : [];
+  const axisGuides = dedupeAxisGuides(functions)
+    .filter((fn) => fn.h >= domain.min && fn.h <= domain.max)
+    .slice(0, 4)
+    .map((fn, index) => {
+      const x = toX(fn.h);
+      const color = colors[index % colors.length];
+      return `<g class="axis-guide" style="animation-delay:${(0.72 + index * 0.16).toFixed(2)}s">
+        <line x1="${x}" y1="${top + 6}" x2="${x}" y2="${bottom}" stroke="${color}" stroke-width="3" stroke-dasharray="8 8" opacity=".86"/>
+        <text x="${x + 9}" y="${top + 30 + index * 20}" font-size="14" font-weight="800" fill="${color}">軸 x=${formatNumber(fn.h)}</text>
+      </g>`;
+    });
   const curves = functions.flatMap((fn, index) => {
     const color = colors[index % colors.length];
     const relatedDomains = relatedDomainsForFunction(domains, functions.length, index);
@@ -1333,7 +1771,7 @@ function functionGraphSvg(spec) {
   const pointSvg = points.slice(0, 10).map((point, index) => {
     const x = toX(point.x);
     const y = toY(point.y);
-    return `<g class="plot-point p${index + 1}" style="animation-delay:${0.4 + index * 0.18}s"><circle cx="${x}" cy="${y}" r="6" fill="#111827"/><text x="${x + 8}" y="${y - 8}" font-size="13" font-weight="700" fill="#111827">${escapeHtml(point.label ?? `(${formatNumber(point.x)}, ${formatNumber(point.y)})`)}</text></g>`;
+    return `<g class="plot-point p${index + 1}" style="animation-delay:${(1.28 + index * 0.18).toFixed(2)}s"><circle cx="${x}" cy="${y}" r="6" fill="#111827"/><text x="${x + 8}" y="${y - 8}" font-size="13" font-weight="700" fill="#111827">${escapeHtml(point.label ?? `(${formatNumber(point.x)}, ${formatNumber(point.y)})`)}</text></g>`;
   });
 
   const legend = functions.map((fn, index) =>
@@ -1344,7 +1782,7 @@ function functionGraphSvg(spec) {
     const x1 = clamp(toX(item.min), left, right);
     const x2 = clamp(toX(item.max), left, right);
     const labelX = (x1 + x2) / 2;
-    return `<g class="domain-marker" style="animation-delay:${(0.8 + index * 0.2).toFixed(2)}s">
+    return `<g class="domain-marker" style="animation-delay:${(1.5 + index * 0.2).toFixed(2)}s">
       <line x1="${x1}" y1="${zeroY}" x2="${x2}" y2="${zeroY}" stroke="#7c3aed" stroke-width="7" stroke-linecap="round" opacity=".72"/>
       <circle cx="${x1}" cy="${zeroY}" r="5" fill="#7c3aed"/>
       <circle cx="${x2}" cy="${zeroY}" r="5" fill="#7c3aed"/>
@@ -1354,6 +1792,9 @@ function functionGraphSvg(spec) {
 
   return `<svg viewBox="0 0 ${w} ${h}" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="${escapeHtml(spec.title)}">
     <style>
+      .grid-line { opacity: 0; animation: fade .35s ease forwards; }
+      .axis-line { stroke-dasharray: 800; stroke-dashoffset: 800; animation: draw .55s ease forwards; animation-delay: .18s; }
+      .axis-guide { opacity: 0; animation: fade .38s ease forwards; }
       .draw-line { stroke-dasharray: 1400; stroke-dashoffset: 1400; animation: draw 1s ease forwards; }
       .plot-point { opacity: 0; animation: fade .4s ease forwards; }
       .domain-marker { opacity: 0; animation: fade .4s ease forwards; }
@@ -1363,10 +1804,11 @@ function functionGraphSvg(spec) {
     <rect x="0" y="0" width="${w}" height="${h}" fill="#fff"/>
     <text x="28" y="28" font-size="18" font-weight="700" fill="#111827">${escapeHtml(spec.title)}</text>
     ${grid.join("\n")}
-    <line x1="${left}" y1="${zeroY}" x2="${right}" y2="${zeroY}" stroke="#111827" stroke-width="2"/>
-    <line x1="${zeroX}" y1="${bottom}" x2="${zeroX}" y2="${top}" stroke="#111827" stroke-width="2"/>
+    <line class="axis-line" x1="${left}" y1="${zeroY}" x2="${right}" y2="${zeroY}" stroke="#111827" stroke-width="2"/>
+    <line class="axis-line" x1="${zeroX}" y1="${bottom}" x2="${zeroX}" y2="${top}" stroke="#111827" stroke-width="2"/>
     <text x="${right - 12}" y="${zeroY - 10}" font-size="16" font-weight="700">x</text>
     <text x="${zeroX + 10}" y="${top + 18}" font-size="16" font-weight="700">y</text>
+    ${axisGuides.join("\n")}
     ${curves.join("\n")}
     ${domainMarkers.join("\n")}
     ${pointSvg.join("\n")}
@@ -1530,7 +1972,7 @@ function wrapText(value, maxChars) {
 }
 
 function graphElement(fn, index, color, viewportDomain, viewportRange, toX, toY, drawDomain = viewportDomain, muted = false) {
-  const delay = (0.2 + index * 0.35).toFixed(2);
+  const delay = (1.0 + index * 0.35).toFixed(2);
   const strokeWidth = muted ? 2.5 : 4;
   const opacity = muted ? ".72" : "1";
   if (fn.kind === "vertical") {
@@ -1834,10 +2276,6 @@ function escapeHtmlAttr(value) {
 
 function escapeRegExp(value) {
   return String(value).replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-}
-
-function escapeMarkdown(value) {
-  return value.replace(/([\\`*_{}[\]()#+\-.!|>])/g, "\\$1");
 }
 
 main().catch((error) => {

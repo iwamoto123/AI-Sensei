@@ -10,19 +10,28 @@
     "lint": "eslint",
     "typecheck": "tsc --noEmit",
     "eval:quadratic": "node scripts/evaluate-quadratic-dataset.mjs",
+    "dataset:export": "node scripts/export-text-dataset.mjs",
     "slides:eval": "node scripts/generate-slides-from-eval.mjs",
     "slides:judge": "node scripts/evaluate-generated-slides.mjs",
     "slides:review": "node scripts/build-slide-review.mjs",
+    "audio:narration": "node scripts/generate-audio-narration.mjs",
+    "remotion:studio": "remotion studio remotion/src/index.ts",
+    "remotion:render": "node scripts/render-lesson.mjs",
     "marp:smoke": "mkdir -p .cache && marp fixtures/marp-smoke.md --allow-local-files --no-stdin -o .cache/marp-smoke.html",
     "preview:capture": "node scripts/capture-slide-preview.mjs"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.82.0",
+    "@remotion/bundler": "^4.0.469",
+    "@remotion/cli": "^4.0.469",
+    "@remotion/player": "^4.0.469",
+    "@remotion/renderer": "^4.0.469",
     "@supabase/supabase-js": "^2.101.1",
     "katex": "^0.16.45",
     "next": "16.2.2",
     "react": "19.2.4",
-    "react-dom": "19.2.4"
+    "react-dom": "19.2.4",
+    "remotion": "^4.0.469"
   },
   "devDependencies": {
     "@marp-team/marp-cli": "^4.2.0",

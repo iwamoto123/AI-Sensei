@@ -1,0 +1,143 @@
+{
+  "schema_version": "0.2",
+  "format": "qa_explainer",
+  "source": {
+    "kind": "reference_video",
+    "ref": "videoplayback.mp4",
+    "note": "他者制作YouTube動画から『教え方の構造・視覚語彙・テンポ』のみ抽出し、Q&A解説動画フォーマットに正規化。台本は逐語コピーせず自前文体で再生成。YouTube固有の枠(前回の動画/煽り/演習束ね/CM)は除外。"
+  },
+  "meta": {
+    "title": "1文字について整理する因数分解",
+    "topic": "数I 因数分解 / 最低次数の文字で整理",
+    "grade": "高1",
+    "problem": "6x^2+(4a-9)x-6a を因数分解せよ",
+    "final_answer": "(2x-3)(2a+3x)"
+  },
+  "design": {
+    "theme": "light",
+    "background": "#ffffff",
+    "palette": {
+      "neutral": "#111827",
+      "focus": "#dc2626",
+      "group": "#b45309",
+      "result": "#15803d",
+      "accent": "#2563eb"
+    }
+  },
+  "scenes": [
+    {
+      "id": "q",
+      "kind": "question",
+      "title": "問題",
+      "steps": [
+        {
+          "id": "q-1",
+          "narration": "次の式を因数分解してみましょう。",
+          "duration_hint_sec": 3,
+          "visual": [
+            { "op": "show_problem_card", "title": "因数分解せよ", "items": ["6x^2+(4a-9)x-6a"] }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "approach",
+      "kind": "approach",
+      "title": "方針",
+      "steps": [
+        {
+          "id": "ap-1",
+          "narration": "x の2次式として見ると、係数が複雑で扱いにくい式です。",
+          "duration_hint_sec": 5,
+          "visual": [
+            { "op": "show_expression", "id": "expr-main", "tex": "6x^2+(4a-9)x-6a", "role_spans": [{ "tokens": ["x^2", "x"], "role": "focus" }] }
+          ]
+        },
+        {
+          "id": "ap-2",
+          "narration": "そこで a に着目すると、a については1次式になります。次数が最も低い文字で整理するのが、この問題の方針です。",
+          "duration_hint_sec": 8,
+          "visual": [
+            { "op": "emphasize_token", "target": "expr-main", "tokens": ["a", "a"], "role": "accent" },
+            { "op": "show_note", "text": "次数が最も低い文字（=a）について整理する" }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "solution",
+      "kind": "solution",
+      "title": "解答",
+      "steps": [
+        {
+          "id": "s-1",
+          "narration": "まずはカッコをすべて展開して、項を並べます。",
+          "duration_hint_sec": 6,
+          "visual": [
+            { "op": "append_equation_line", "target": "expr-main", "relation": "=", "tex": "6x^2+4ax-9x-6a", "role_spans": [{ "tokens": ["4ax", "6a"], "role": "accent" }], "label": "まず展開する" }
+          ]
+        },
+        {
+          "id": "s-2",
+          "narration": "次に、a を含む項と、含まない項に仕分けします。",
+          "duration_hint_sec": 6,
+          "visual": [
+            { "op": "append_equation_line", "target": "expr-main", "relation": "=", "tex": "(4ax-6a)+(6x^2-9x)", "role_spans": [{ "tokens": ["(4ax-6a)"], "role": "accent" }, { "tokens": ["(6x^2-9x)"], "role": "group" }], "label": "低次の a で整理する" }
+          ]
+        },
+        {
+          "id": "s-3",
+          "narration": "それぞれの組を共通因数でくくります。a の組は 2a で、もう一方は 3x でくくれます。",
+          "duration_hint_sec": 7,
+          "visual": [
+            { "op": "append_equation_line", "target": "expr-main", "relation": "=", "tex": "2a\\,\\htmlId{fmig-src}{\\fcolorbox{#15803d}{#ffffff}{$\\textcolor{#15803d}{(2x-3)}$}}+3x\\,\\fcolorbox{#15803d}{#ffffff}{$\\textcolor{#15803d}{(2x-3)}$}", "label": "各組を共通因数でくくる" }
+          ]
+        },
+        {
+          "id": "s-4",
+          "narration": "すると、どちらの組にも 2x − 3 という共通因数が現れました。枠で囲んだ部分が共通因数です。",
+          "duration_hint_sec": 5,
+          "visual": []
+        },
+        {
+          "id": "s-5",
+          "narration": "この共通因数 2x − 3 を前に出してくくり、残りをまとめれば、因数分解の完成です。",
+          "duration_hint_sec": 6,
+          "visual": [
+            { "op": "factor_migrate", "target": "expr-main", "common": "(2x-3)", "rest": "(2a+3x)", "src_id": "fmig-src", "tex": "(2x-3)(2a+3x)", "label": "共通因数でくくる" }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "answer",
+      "kind": "answer",
+      "title": "答え",
+      "steps": [
+        {
+          "id": "ans-1",
+          "narration": "答えは、2x − 3 かける 2a + 3x です。",
+          "duration_hint_sec": 4,
+          "visual": [
+            { "op": "show_answer", "tex": "(2x-3)(2a+3x)", "role": "result" }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "takeaway",
+      "kind": "takeaway",
+      "title": "ポイント",
+      "steps": [
+        {
+          "id": "tk-1",
+          "narration": "複数の文字を含む式は、次数が最も低い文字について整理する。これがどんな問題でも使える視点です。",
+          "duration_hint_sec": 7,
+          "visual": [
+            { "op": "show_bullets", "items": ["複数文字 → 最低次数の文字で整理", "次数に差がなければ どれか1文字で整理"] }
+          ]
+        }
+      ]
+    }
+  ]
+}

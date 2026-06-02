@@ -57,14 +57,22 @@ async function judgeCase(client, row, slidesDir, model) {
   const mdPath = join(slidesDir, `case-${caseId}`, "slides.md");
   const htmlPath = join(slidesDir, `case-${caseId}`, "slides.html");
   const previewPath = join(slidesDir, `case-${caseId}`, "preview.png");
+  const caseDir = join(slidesDir, `case-${caseId}`);
   const slideMarkdown = await readFile(mdPath, "utf8");
   const slideFeatures = inspectSlides(slideMarkdown, existsSync(htmlPath) ? await readFile(htmlPath, "utf8") : "");
+  const captureFrames = await readCaptureFrames(caseDir, 8);
+  slideFeatures.animation_capture_count = captureFrames.total_count;
+  slideFeatures.animation_capture_sample_count = captureFrames.frames.length;
   slideFeatures.local_diagram_issues = assessLocalDiagram(row, slideFeatures);
   const imageBlocks = await Promise.all([
     imageContent(row.problem_image),
     ...row.answer_images.map((path) => imageContent(path)),
   ]);
   const previewBlock = existsSync(previewPath) ? await imageContent(previewPath) : null;
+  const captureBlocks = await Promise.all(captureFrames.frames.map(async (frame) => ({
+    frame,
+    image: await imageContent(join(caseDir, frame.path)),
+  })));
 
   const answerBlocks = imageBlocks.slice(1).flatMap((image, index) => [
     image,
@@ -90,6 +98,10 @@ async function judgeCase(client, row, slidesDir, model) {
               previewBlock,
               { type: "text", text: "上の画像は生成スライドのプレビューです。図が見切れていないか、問題の式・点・定義域・図形条件に対応しているかは、このプレビューを優先して確認してください。" },
             ] : []),
+            ...captureBlocks.flatMap(({ frame, image }) => [
+              image,
+              { type: "text", text: `上の画像は生成スライドのアニメーション検証キャプチャです。scene=${frame.scene_index}, elapsed_ms=${frame.elapsed_ms}。数式や説明テキストが段階的に表示されているか、途中で止まっていないか、次シーンへ自然につながるかを確認してください。` },
+            ]),
             {
               type: "text",
               text: [
@@ -103,9 +115,15 @@ async function judgeCase(client, row, slidesDir, model) {
                 "   - 複数の直線・放物線を同じ座標平面に描く問題では、少なくとも主要な解答シーンで同一図上に重ねて比較できることを重視してください。",
                 "   - 3元連立方程式などグラフ問題でない場合は、汎用グラフではなく、消去する文字・得られる式・代入の流れが対応した図を評価してください。",
                 "3. progression_quality: スライドの順序が、生徒にとって自然な説明になっているか。",
+                "   - 表紙・方針・注意点などの定型ページから始まらず、1枚目から動画解説として計算・図示に入っているかを重視してください。",
+                "   - 途中計算を飛ばさず、行間を読めない生徒でも追える粒度になっているかを重視してください。",
                 "4. animation_quality: アニメーション動画または段階表示として成立しているか。静的スライドだけなら低くしてください。",
+                "   - 同一シーンでは画面を切り替えず、図やグラフに合わせて説明テキストが同じ画面内に追加されるものを高く評価してください。",
+                "   - グラフ問題では、人が描く順番に近く、軸・補助線・曲線・点・説明が順に出るかを重視してください。",
+                "   - 音声解説スクリプトとスライド上の表示要素が data-narration-id 等で同期できるかも確認してください。",
+                "   - アニメーション検証キャプチャがある場合は、代表プレビュー1枚よりもキャプチャ列を優先し、数式・説明・図が途中フレームで正しく現れるかを確認してください。",
                 "5. slide_usability: 文字量、分割、読みやすさ、授業スライドとしての使いやすさ。",
-                "0〜100点で採点し、総合的に合格なら pass=true にしてください。ただし diagram_quality が70未満、または animation_quality が60未満なら pass=false にしてください。",
+                "0〜100点で採点し、総合的に合格なら pass=true にしてください。ただし diagram_quality が70未満、progression_quality が70未満、または animation_quality が60未満なら pass=false にしてください。",
                 "JSONのみで返してください:",
                 "{\"answer_correctness\":0,\"diagram_quality\":0,\"progression_quality\":0,\"animation_quality\":0,\"slide_usability\":0,\"total_score\":0,\"pass\":false,\"issues\":[],\"suggested_fixes\":[]}",
                 "",
@@ -140,10 +158,19 @@ async function judgeCase(client, row, slidesDir, model) {
 
 function inspectSlides(markdown, html) {
   const slideCount = (markdown.match(/^---$/gm) ?? []).length - 1;
+  const firstContentSlide = firstSlideMarkdown(markdown);
+  const firstSlideIsScene = /<!--\s*_class:\s*scene-slide\s*-->/.test(firstContentSlide);
+  const hasTemplateIntro = /#\s*Case\s+\d+|##\s*解法方針|##\s*なぜこの方法か|##\s*注意点|判定スコア/.test(markdown);
   const stepHeadingCount = (markdown.match(/^### /gm) ?? []).length;
   const hasCssAnimation = /animation\s*:|@keyframes|transition\s*:/.test(markdown) || /animation\s*:|@keyframes|transition\s*:/.test(html);
   const hasIncrementalReveal = /scene-layer|--step-index|data-marpit-fragment|fragment|incremental/.test(markdown + html);
   const hasMedia = /<video|\.mp4|\.webm|<audio/.test(markdown + html);
+  const sceneStepCount = (markdown.match(/class="scene-step"/g) ?? []).length;
+  const formulaBlockCount = (markdown.match(/<pre>/g) ?? []).length;
+  const narrationIdCount = (markdown.match(/data-narration-id=/g) ?? []).length;
+  const sceneIdCount = (markdown.match(/data-scene-id=/g) ?? []).length;
+  const hasNarrationMeta = /class="narration-meta"/.test(markdown);
+  const hasHumanDrawOrder = /class="axis-line"|class="axis-guide"|class="draw-line"|class="plot-point"/.test(markdown + html);
   const diagramSpecs = [...markdown.matchAll(/data-diagram-spec="([^"]+)"/g)]
     .map((match) => parseDiagramSpec(match[1]))
     .filter(Boolean);
@@ -191,10 +218,18 @@ function inspectSlides(markdown, html) {
     Math.max(max, Array.isArray(spec.functions) ? spec.functions.length : 0), 0);
   return {
     slide_count: Math.max(0, slideCount),
+    first_slide_is_scene: firstSlideIsScene,
+    has_template_intro: hasTemplateIntro,
     step_heading_count: stepHeadingCount,
+    scene_step_count: sceneStepCount,
+    formula_block_count: formulaBlockCount,
     has_css_animation: hasCssAnimation,
     has_incremental_reveal: hasIncrementalReveal,
     has_video_or_audio: hasMedia,
+    has_narration_meta: hasNarrationMeta,
+    narration_id_count: narrationIdCount,
+    scene_id_count: sceneIdCount,
+    has_human_draw_order: hasHumanDrawOrder,
     diagram_count: diagramSpecs.length,
     diagram_types: diagramTypes,
     function_expressions: functionExpressions.slice(0, 12),
@@ -209,6 +244,11 @@ function inspectSlides(markdown, html) {
     has_domain_highlight: /domain-marker|定義域/.test(markdown + html),
     markdown_length: markdown.length,
   };
+}
+
+function firstSlideMarkdown(markdown) {
+  const withoutFrontMatter = markdown.replace(/^---\n[\s\S]*?\n---\n?/, "").trimStart();
+  return withoutFrontMatter.split(/\n---\n/)[0] ?? "";
 }
 
 function parseDiagramSpec(raw) {
@@ -230,8 +270,14 @@ function normalizeJudge(value, localDiagramIssues = []) {
   const diagram = localDiagramIssues.length > 0
     ? Math.min(boundedNumber(value.diagram_quality), 69)
     : boundedNumber(value.diagram_quality);
-  const progression = boundedNumber(value.progression_quality);
-  const animation = boundedNumber(value.animation_quality);
+  const hasProgressionIssue = localDiagramIssues.some((issue) => /1枚目|定型|途中計算/.test(issue));
+  const hasAnimationIssue = localDiagramIssues.some((issue) => /data-narration-id|アニメーション/.test(issue));
+  const progression = hasProgressionIssue
+    ? Math.min(boundedNumber(value.progression_quality), 69)
+    : boundedNumber(value.progression_quality);
+  const animation = hasAnimationIssue
+    ? Math.min(boundedNumber(value.animation_quality), 59)
+    : boundedNumber(value.animation_quality);
   const usability = boundedNumber(value.slide_usability);
   const total = boundedNumber(value.total_score);
 
@@ -242,7 +288,7 @@ function normalizeJudge(value, localDiagramIssues = []) {
     animation_quality: animation,
     slide_usability: usability,
     total_score: total,
-    pass: value.pass === true && diagram >= 70 && animation >= 60 && localDiagramIssues.length === 0,
+    pass: value.pass === true && diagram >= 70 && progression >= 70 && animation >= 60 && localDiagramIssues.length === 0,
     issues: [
       ...(Array.isArray(value.issues) ? value.issues.map(String) : []),
       ...localDiagramIssues.map((issue) => `[local] ${issue}`),
@@ -273,6 +319,19 @@ function assessLocalDiagram(row, slideFeatures) {
     && !expectsParameterExtreme
     && !expectsLinearSystem;
 
+  if (!slideFeatures.first_slide_is_scene) {
+    issues.push("1枚目が解説シーンではありません。表紙や方針説明を挟まず、すぐ動画解説に入る必要があります。");
+  }
+  if (slideFeatures.has_template_intro) {
+    issues.push("表紙・解法方針・注意点などの定型スライドが残っています。");
+  }
+  if (!slideFeatures.has_narration_meta || (slideFeatures.narration_id_count ?? 0) < (slideFeatures.scene_step_count ?? 0)) {
+    issues.push("音声解説スクリプトとスライド表示を同期する data-narration-id が不足しています。");
+  }
+  if ((slideFeatures.formula_block_count ?? 0) < Math.min(3, Math.max(1, (slideFeatures.scene_step_count ?? 0) - 1))) {
+    issues.push("途中計算を追うための式表示が不足しています。");
+  }
+
   if (slideFeatures.diagram_count === 0) {
     issues.push("図のメタデータが検出できません。");
     return issues;
@@ -302,6 +361,9 @@ function assessLocalDiagram(row, slideFeatures) {
     || slideFeatures.diagram_types.includes("square_completion");
   if (expectsGraph && !hasConceptualDiagram && slideFeatures.function_expressions.length === 0 && slideFeatures.point_labels.length === 0) {
     issues.push("グラフ・座標問題なのに、関数式や点に対応した図要素がありません。");
+  }
+  if (expectsGraph && !slideFeatures.has_human_draw_order) {
+    issues.push("グラフ問題なのに、軸・補助線・曲線・点を順に描くアニメーション構造がありません。");
   }
   return issues;
 }
@@ -387,6 +449,43 @@ async function imageContent(path) {
       data: data.toString("base64"),
     },
   };
+}
+
+async function readCaptureFrames(caseDir, limit) {
+  const manifestPath = join(caseDir, "captures", "capture-manifest.json");
+  try {
+    const manifest = JSON.parse(await readFile(manifestPath, "utf8"));
+    const frames = Array.isArray(manifest.frames) ? manifest.frames : [];
+    return {
+      total_count: frames.length,
+      frames: sampleFrames(frames, limit),
+    };
+  } catch {
+    return { total_count: 0, frames: [] };
+  }
+}
+
+function sampleFrames(frames, limit) {
+  if (frames.length <= limit) return frames;
+  const byScene = new Map();
+  for (const frame of frames) {
+    const key = String(frame.scene_index ?? "");
+    if (!byScene.has(key)) byScene.set(key, []);
+    byScene.get(key).push(frame);
+  }
+  const sampled = [];
+  for (const sceneFrames of byScene.values()) {
+    sampled.push(sceneFrames[0]);
+    if (sceneFrames.length > 2) sampled.push(sceneFrames[Math.floor(sceneFrames.length / 2)]);
+    if (sceneFrames.length > 1) sampled.push(sceneFrames.at(-1));
+  }
+  if (sampled.length <= limit) return sampled;
+  const step = (sampled.length - 1) / (limit - 1);
+  const selected = [];
+  for (let index = 0; index < limit; index += 1) {
+    selected.push(sampled[Math.round(index * step)]);
+  }
+  return selected.filter((frame, index, list) => list.indexOf(frame) === index);
 }
 
 function mediaType(path) {
